@@ -1,3 +1,4 @@
+// server/server.js
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
@@ -5,58 +6,59 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
 
-// Ensure 'uploads' folder exists
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
-}
+// File upload setup
+const upload = multer({ dest: path.join(__dirname, 'uploads/') });
 
-// Multer setup
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, file.originalname); // Save with original name
-  }
-});
-const upload = multer({ storage });
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Upload endpoint
 app.post('/upload', upload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).send('No file uploaded.');
-  res.json({ message: 'File uploaded successfully' });
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  const { originalname, filename } = req.file;
+  res.json({
+    name: originalname,
+    url: `${req.protocol}://${req.get('host')}/download/${filename}`,
+  });
 });
 
-// Serve uploaded files statically
-app.use('/files', express.static(uploadDir));
-
-// List files
+// List files endpoint
 app.get('/files', (req, res) => {
-  fs.readdir(uploadDir, (err, files) => {
-    if (err) return res.status(500).send('Error reading files.');
+  const uploadsDir = path.join(__dirname, 'uploads');
+
+  fs.readdir(uploadsDir, (err, files) => {
+    if (err) {
+      return res.status(500).send('Unable to scan files');
+    }
+
     const fileList = files.map(file => ({
       name: file,
-      url: `http://localhost:${PORT}/files/${file}`
+      url: `${req.protocol}://${req.get('host')}/download/${file}`,
     }));
+
     res.json(fileList);
   });
 });
 
-// Download file
+// Download endpoint
 app.get('/download/:filename', (req, res) => {
-  const filePath = path.join(uploadDir, req.params.filename);
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).send('File not found');
+  const filePath = path.join(__dirname, 'uploads', req.params.filename);
+  if (fs.existsSync(filePath)) {
+    res.download(filePath);
+  } else {
+    res.status(404).send('File not found');
   }
-  res.download(filePath);
 });
 
+// Start server
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });
